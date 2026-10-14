@@ -1,45 +1,50 @@
 # Frontier AI Security Risk Analysis Lab
 
-> **生成AIを活用したセキュリティリスク分析を、実際の設定・接続試験・ログで評価する自主学習プロジェクト**
+> **生成AIでシステムのリスクを分析し、接続試験・ログ・対策結果を使ってAIの判断を評価する自主学習プロジェクト**
 
-本プロジェクトは、NTTドコモビジネスのCRXソリューションにおける「フロンティアAI」の考え方を参考に、生成AIを使ったリスク分析から実機検証、対策、効果確認までを実践するものです。
+NTTドコモビジネスのCRXソリューションにおける「フロンティアAI」への関心から、**リスク分析 → 実機検証 → 対策 → 効果検証 → AIの判断の評価**を、独自の仮想環境で実践しました。
 
-**注意：** 本リポジトリは独自の学習実験です。CRX製品や「フロンティアAI」の実装・内部機能を使用、再現したものではありません。実験は自分で管理する仮想環境内で実施しています。
+今回はUbuntu ServerのSSHとpfSenseの通信制御を対象に、Ollama上で動くGemma 3（4B）の分析と、実際に観測した設定・通信・認証ログを比較しています。
+
+> **位置づけ：** 本リポジトリは学習目的の独自実験です。CRX製品や「フロンティアAI」の実装・内部モデル・固有機能を利用または再現したものではありません。検証は自身が管理する仮想環境内で実施しています。
 
 ## 1. 目的
 
 **生成AIを活用してシステムのセキュリティリスクを分析し、実際の検証と対策を通じて、AIによるリスク分析の有効性を評価する。**
 
-今回はUbuntu ServerのSSH設定とpfSenseの通信制御を対象に、次の3点を確認します。
+以下の3点を評価します。
 
-1. **リスクの発見：** 生成AIがSSHの認証設定や接続許可範囲について、確認すべき問題点を整理できるか。
-2. **対策の検証：** AI分析で扱った論点に対し、通信制御・認証強化の前後で挙動がどう変わるか。
-3. **AIの有効性の評価：** AIの判断が設定・接続試験・ログと整合するか。誤判断や判断不能な点は何か。
+1. **リスク分析：** SSH設定やファイアウォールルールから、AIが確認すべきリスク・対策案を整理できるか。
+2. **実機検証：** AIの判断を、接続試験・ネットワーク経路・ファイアウォールログ・認証ログと照合できるか。
+3. **有効性の評価：** AIの判断が正しい箇所と誤る箇所を特定し、改善すべき入力情報や検証方法を整理できるか。
 
-「AIがリスクを指摘した」という出力自体を成果とせず、**実際に観測した事実と照合して評価すること**を重視しています。
+**AIが「危険」と回答したことだけでは成果としません。何が事実で、何がAIの推測なのかを区別します。**
 
 ## 2. 検証環境
 
-### 全体構成図
+### 2.1 全体構成
 
-![Frontier AI Security Risk Analysis Labの全体構成](images/lab-architecture.png)
+![Kali、pfSense、Ubuntu、Windows、Ollama、Gemma 3の全体構成図](images/lab-architecture.png)
 
-VMware Workstation上に仮想マシンを用意しました。Ubuntu ServerではSSHサーバーを動かし、Ollama・Gemma 3を用いたローカルAI分析にも取り組みました。
-
-| 機器・ソフトウェア | IPアドレス / 構成 | 役割 |
+| 構成要素 | ネットワーク / 実行場所 | 役割 |
 |---|---|---|
-| Kali Linux | `192.168.2.100` / VMnet3 | 管理端末以外からのSSH接続試験 |
-| Ubuntu Server | `192.168.1.101` / VMnet2 | SSHの保護対象、ローカルAIの実行環境 |
-| Windows 11 | `192.168.1.102` / VMnet2 | 正規の管理端末 |
-| pfSense 2.9.0 | WAN `192.168.160.132` / LAN `192.168.1.1` / OPT1 `192.168.2.1` | LAN間通信の制御・ログ記録 |
-| Ollama / Gemma 3（4B） | Ubuntu上でローカル実行 | 設定・接続試験結果を用いたリスク分析 |
-| Python | Ollama APIとの連携 | AI分析の実行・結果保存・レポート生成 |
+| **Kali Linux** | `192.168.2.100` / VMnet3 | 非管理端末を想定したSSH接続試験 |
+| **Ubuntu Server** | `192.168.1.101` / VMnet2 | SSH保護対象、ローカルAI実行環境 |
+| **Windows 11** | `192.168.1.102` / VMnet2 | 正規の管理端末、pfSenseのWeb GUI操作 |
+| **pfSense 2.9.0** | WAN `192.168.160.132` / LAN `192.168.1.1` / OPT1 `192.168.2.1` | VMnet2・VMnet3間の通信制御とログ記録 |
+| **Ollama** | Ubuntu Server上 | ローカルLLMの実行基盤とAPI |
+| **Gemma 3（4B）** | Ollamaで実行 | SSH・ネットワーク設定のリスク分析 |
+| **Python** | Ubuntu Server上 | AIへの入力・出力保存・検証記録のレポート化 |
 
-**通信経路の注意：** Kali（VMnet3）からUbuntu（VMnet2）への通信はpfSenseのルールで制御します。一方、WindowsとUbuntuは同一LANにあり、通常この2台のSSH通信はpfSenseを通りません。したがって、Windows側の接続成功は「pfSenseがWindowsを明示的に許可した」証拠ではありません。
+**通信経路上の重要な違い：** KaliからUbuntuへのSSH通信は異なるサブネット間の通信で、pfSenseによる制御対象です。一方、WindowsとUbuntuは同一LAN（VMnet2）にあるため、通常のSSH通信はpfSenseを経由しません。
 
-SSH実験のネットワーク設定は、以下の画像で確認できます。
+### 2.2 インターフェースと経路の確認
 
-![pfSenseのインターフェース](images/01-pfsense-interfaces.png)
+**pfSense：** WAN=`em0`、LAN=`em1`、OPT1=`em2` の割り当てを確認しました。
+
+![pfSenseのインターフェース設定](images/01-pfsense-interfaces.png)
+
+**Kali：** `ip route` でデフォルトゲートウェイが `192.168.2.1`（pfSense OPT1）であることを確認しました。
 
 ![Kaliのルーティング情報](images/02-kali-routing.png)
 
@@ -47,47 +52,45 @@ SSH実験のネットワーク設定は、以下の画像で確認できます�
 
 ```mermaid
 flowchart TD
-    A["① 仮想ネットワーク・AI環境を構築"] --> B["② SSH設定・通信ルールを収集"]
-    B --> C["③ 生成AIでリスクを分析"]
-    C --> D["④ 対策前の接続試験"]
-    D --> E["⑤ pfSense・SSH認証の対策"]
+    A["① 仮想環境・ローカルAIを構築"] --> B["② SSH設定・FWルールを収集"]
+    B --> C["③ AIでリスク分析"]
+    C --> D["④ 対策前のSSH接続を検証"]
+    D --> E["⑤ pfSenseで通信制限・公開鍵認証へ移行"]
     E --> F["⑥ 接続試験・ログで効果検証"]
-    F --> G["⑦ AIの判断と実測結果を比較"]
-    G --> H["⑧ 分析記録・レポートの整備"]
-    H --> I["⑨ Webアプリ等への展開"]
-    classDef done fill:#e8f5e9,stroke:#388e3c,color:#1b5e20;
-    classDef active fill:#fff3e0,stroke:#ef6c00,color:#8d4e00;
-    classDef future fill:#eceff1,stroke:#607d8b,color:#263238;
-    class A,B,D,E,F done;
-    class C,G,H active;
+    F --> G["⑦ AI分析と実測結果を比較・再評価"]
+    G --> H["⑧ Pythonで結果を記録・レポート生成"]
+    H --> I["⑨ Webアプリ等へ対象を拡張"]
+    classDef done fill:#e9f6ec,stroke:#26854b,color:#143b25;
+    classDef future fill:#f3f4f6,stroke:#7a8593,color:#3c4856;
+    class A,B,C,D,E,F,G,H done;
     class I future;
 ```
 
-| 工程 | 内容 | 状態 |
-|---|---|---|
-| ① 環境構築 | Kali・Ubuntu・Windows・pfSenseの構築、Ollama・Gemma 3の分析環境準備 | 完了・実施済み |
-| ② 情報収集 | SSHの実効設定、ネットワーク、pfSenseのルールを確認 | 完了 |
-| ③ AI分析 | SSH設定と通信ルールについてGemma 3で分析 | 実施済み（分析記録の整備は継続） |
-| ④ 対策前検証 | KaliからUbuntuへのSSHログイン | 完了 |
-| ⑤ 対策 | pfSenseのSSH許可ルールを無効化、SSH公開鍵認証へ移行 | 完了 |
-| ⑥ 効果検証 | Kaliの接続失敗、Windowsの接続成功、通信・認証ログを確認 | 完了 |
-| ⑦ AI評価 | ファイアウォールルール等のAI解釈と実測結果を比較 | 実施済み（評価方法を改善中） |
-| ⑧ 記録・自動化 | PythonのAI分析・Markdownレポート生成スクリプトを作成 | スクリプト作成済み |
-| ⑨ 対象拡張 | Webアプリの認証・アクセス制御の検証 | 未着手 |
+| 工程 | 内容 | 状態 | 主な証拠 |
+|---|---|---|---|
+| ① 環境構築 | Kali / Ubuntu / Windows / pfSense / Ollama / Gemma 3 | **完了** | 全体構成図、画像01・02 |
+| ② 情報収集 | SSH実効設定、通信ルール、接続試験結果の整理 | **完了** | 画像04・07、`ssh_config.txt` 等 |
+| ③ AI分析 | Gemma 3で設定・経路・ルールを分析 | **完了** | AI出力画像、`security_analysis.txt` |
+| ④ 対策前検証 | KaliからUbuntuへSSHログイン | **完了** | 画像03・09 |
+| ⑤ 対策 | pfSenseの許可ルール無効化、SSH公開鍵認証への移行 | **完了** | 画像04・08 |
+| ⑥ 効果検証 | 遮断、正常な接続、FW・認証ログの確認 | **完了** | 画像05・06・09・10 |
+| ⑦ AIの評価 | 回答内容と実測・経路を比較し、誤判断を確認 | **完了（定性的評価）** | AI出力画像、評価記録 |
+| ⑧ 記録・レポート | Pythonで分析結果を保存し、`auto_report.md`を生成 | **完了（基本動作）** | 実行画像、レポート生成画像 |
+| ⑨ 対象拡張 | Webアプリの認証・アクセス制御へ展開 | **未着手** | 今後の計画 |
 
-以下では、**「実際の観測結果」「AI分析で判明したこと」「まだ確認できていないこと」**を区別して記録します。
+※「完了」は**今回設定した作業・確認範囲**についての状態です。AI分析精度の統計的な評価やWebアプリの検証まで完了したわけではありません。
 
-## 4. 段階別の実験と結果
+## 4. 段階別の実験
 
-### STEP 1｜SSH設定と通信ルールの情報収集
+### STEP 1｜SSH設定とファイアウォールルールを収集
 
-UbuntuでSSHサーバーの実効設定を確認しました。
+UbuntuでSSHの実効設定を確認しました。
 
 ```bash
 sudo sshd -T | grep -E '^(port|permitrootlogin|passwordauthentication|pubkeyauthentication)'
 ```
 
-対策前に確認できた設定は以下です。
+対策前の主な設定は以下です。
 
 ```text
 port 22
@@ -96,85 +99,92 @@ pubkeyauthentication yes
 passwordauthentication yes
 ```
 
-`passwordauthentication yes` はパスワード認証が有効であることを示します。ただし、この設定だけで侵害や脆弱性の存在が確定するわけではありません。管理端末以外からSSHに到達できるかも合わせて調べる必要があります。
-
 ![対策前のSSH実効設定](images/07-ssh-settings-before.png)
 
-pfSenseでは、当初OPT1にKali（`192.168.2.100`）からUbuntu（`192.168.1.101`）のTCP/22を許可するルールがありました。
+`passwordauthentication yes` はパスワード認証が可能であることを表します。ただし、**この設定だけで脆弱性や侵害を断定できるわけではありません**。実際の到達性や認証ログと組み合わせて確認します。
 
-![対策前のSSH許可ルール](images/04-firewall-allow-rule.png)
+pfSenseのOPT1には、Kali（`192.168.2.100`）からUbuntu（`192.168.1.101`）のTCP/22を許可するルールがありました。
 
-**この段階の結果：** SSHの認証方式と、KaliからのSSH通信に関係する許可ルールを特定しました。
+![対策前に有効だったSSH許可ルール](images/04-firewall-allow-rule.png)
 
-### STEP 2｜生成AIでリスクを分析
+**確認結果：** SSHの認証方式と、KaliからのSSH到達性に関係する通信ルールを特定しました。
 
-UbuntuにOllama・Gemma 3（4B）を導入し、SSH設定とネットワーク・ファイアウォール情報を用いて分析しました。
+### STEP 2｜Gemma 3でセキュリティリスクを分析
 
-検討対象は次のとおりです。
+Ubuntu上でOllamaとGemma 3（4B）を実行し、SSH設定・ネットワーク情報・検証結果を入力して分析しました。PythonからOllama APIを呼び出す処理も実装しています。
 
-| 分析対象 | AIに評価させる論点 |
+```text
+入力：SSH設定 / ネットワーク・FW情報 / 検証結果
+                 ↓
+          Python + Ollama API
+                 ↓
+             Gemma 3（4B）
+                 ↓
+          AI分析結果をテキスト保存
+```
+
+![PythonからGemma 3による分析を実行してテキストに保存](images/11-ai-analysis-execution.png)
+
+分析では、次の論点を検討しました。
+
+| 対象 | 確認した論点 |
 |---|---|
-| SSH認証設定 | パスワード認証によるリスクと公開鍵認証の必要性 |
-| 接続元制限 | 管理端末以外からSSHに接続できる可能性 |
-| pfSenseルール | `Pass` と `Disabled` を区別して有効な許可ルールを判断できるか |
-| ネットワーク構成 | WindowsとUbuntuの同一LAN内通信を正しく解釈できるか |
-| 判断の根拠 | 不明なルールや未観測の事実を断定していないか |
+| SSH認証 | パスワード認証・公開鍵認証の利用状況 |
+| 通信制御 | SSH接続を許可するルールが有効か無効か |
+| アクセス可否 | KaliからUbuntuに接続できると判断できるか |
+| ネットワーク経路 | WindowsとUbuntuが同一LANで直接通信するか |
+| 根拠の十分性 | 不明なルールや実測していない挙動まで断定していないか |
 
-**結果：** ローカルAIで設定を分析し、ファイアウォールの無効化された許可ルールを誤って解釈する事例が見られました。これにより、AIが設定の一部分だけから通信可否を断定する危険性が分かりました。
+**確認結果：** Gemma 3の出力を得て、分析内容をテキストファイルとして保存できました。AIの回答の正誤は、後述の実測結果と比較して評価します。
 
-**記録上の制約：** 初期のAIへの入力・回答の完全な原文は、このREADMEの証拠画像として収録していません。したがって、具体的なAI発言の引用や分析精度の数値評価は行っていません。
+### STEP 3｜対策前にKaliからSSH接続
 
-### STEP 3｜対策前の接続試験
-
-KaliからUbuntuのSSHへ接続しました。
+KaliからUbuntuへSSH接続しました。
 
 ```bash
 ssh csirt@192.168.1.101
 ```
 
-パスワード認証によるログインに成功し、管理用として想定していないKaliからもSSHを利用できる状態を確認しました。
+![対策前のKaliからUbuntuへのSSHログイン成功](images/03-ssh-login-before.png)
 
-![KaliからUbuntuへのSSH接続成功](images/03-ssh-login-before.png)
+**実測結果：** パスワード認証でログインに成功し、管理端末として想定していないKaliからもSSH接続できる状態でした。接続元を管理端末に限定するという運用方針に対して、改善対象があると分かりました。
 
-**この段階の結果：** 接続許可範囲を管理端末に限定する方針に対して、対策前はKaliからのアクセスが可能でした。
+### STEP 4｜pfSenseでSSH接続元を制限
 
-### STEP 4｜通信制御の対策・効果検証
-
-pfSenseのOPT1上で、KaliからUbuntuのTCP/22を許可するルールを無効化し、デフォルト拒否で新規SSH通信を遮断しました。
-
-対策後、Kaliから再試行しました。
+pfSenseのOPT1上で、Kali→UbuntuのTCP/22を許可するルールを無効化しました。残るデフォルト拒否ルールにより、Kaliからの新規SSH接続を遮断しました。
 
 ```bash
 ssh -o ConnectTimeout=5 csirt@192.168.1.101
 ```
 
-`Connection timed out` が表示され、SSH接続に失敗しました。
+![対策後のKaliからのSSH接続タイムアウト](images/05-kali-ssh-blocked.png)
 
-![KaliからのSSH接続失敗](images/05-kali-ssh-blocked.png)
+このときKali側は `Connection timed out` を返しました。加えてpfSenseで同じ通信の記録を確認しました。
 
-さらにpfSenseのFirewallログで、同じ送信元・宛先・TCP/22について、対策前の`Pass`と対策後の`Block`を確認しました。
+![pfSenseのTCP22に対するPassとBlockの比較](images/10-pfsense-allow-deny-log.png)
 
-![pfSenseのPassとBlockの比較](images/10-pfsense-allow-deny-log.png)
+- **対策前：** KaliからUbuntuのTCP/22が`Pass`。
+- **対策後：** 同じ送信元・宛先のTCP/22が`Block`（デフォルト拒否）。
 
-**この段階の結果：** Kaliからの新規SSH接続は遮断され、pfSenseのログもその結果と整合しました。既存セッションやすべての通信経路を網羅的に評価したわけではありません。
+**実測結果：** 新規SSH接続の失敗とFWログの遮断記録が整合し、通信制御の効果を確認しました。ただし、既存セッションの挙動や他の通信先までは検証していません。
 
-### STEP 5｜正常な管理接続の維持
+### STEP 5｜Windowsからの正常な管理接続を確認
 
-Windows（`192.168.1.102`）からUbuntu（`192.168.1.101`）へのSSHログインを確認しました。
+Windows（`192.168.1.102`）からUbuntu（`192.168.1.101`）へのSSH接続は成功しました。
 
-![WindowsからUbuntuへのSSH接続成功](images/06-windows-admin-login.png)
+![WindowsからUbuntuへのSSHログイン](images/06-windows-admin-login.png)
 
-**この段階の結果：** Kali側からの通信を遮断しながら、Windowsからの管理アクセスは利用できました。ただし、この2台は同一LAN内で直接通信するため、pfSenseによるWindowsの明示的な許可を示すものではありません。画像は公開鍵認証への移行前のパスワードログインです。
+**実測結果：** KaliからのSSH通信を制限した一方、Windowsからの管理経路は利用できました。**WindowsとUbuntuは同一LAN内なので、この接続成功はpfSenseがWindowsを明示的に許可した証拠ではありません。** 画像のログインは公開鍵認証へ移行する前のパスワード認証です。
 
-### STEP 6｜SSH公開鍵認証への移行
+### STEP 6｜SSH認証を公開鍵方式に強化
 
-Ubuntuでパスワード認証を無効化し、公開鍵認証を有効化しました。
+Ubuntuのパスワード認証を無効化し、公開鍵認証を利用するようにしました。
 
 ```bash
 sudo sshd -T | grep -E '^(passwordauthentication|pubkeyauthentication|kbdinteractiveauthentication)'
 ```
 
-対策後の実効設定は以下でした。
+対策後の主な実効設定：
 
 ```text
 pubkeyauthentication yes
@@ -182,79 +192,131 @@ passwordauthentication no
 kbdinteractiveauthentication no
 ```
 
-![対策後のSSH実効設定](images/08-ssh-effective-settings.png)
+![公開鍵認証への移行後のSSH設定](images/08-ssh-effective-settings.png)
 
-さらに認証ログから、対策前のパスワード認証成功と、Windowsからの公開鍵認証成功を確認しました。
+さらにUbuntuの認証ログから、対策前のパスワード認証成功と、Windowsからの公開鍵認証成功を確認しました。
 
-![UbuntuのSSH認証ログ](images/09-authentication-events.png)
+![Ubuntuの認証ログ：Accepted passwordとAccepted publickey](images/09-authentication-events.png)
 
-**この段階の結果：** SSHの実効設定と認証ログによって、公開鍵認証への移行を確認できました。すべての認証失敗パターンを検証したわけではありません。
+**実測結果：** SSHの設定と`Accepted publickey`の記録から公開鍵認証への移行を確認できました。認証に関する全パターンを網羅した試験ではありません。
 
-### STEP 7｜AIの判断と実測結果を比較
+### STEP 7｜AIの判断を実測結果と比較
 
-生成AIの解釈が実環境と一致するかを、設定・通信経路・ログから検討しました。
+Gemma 3の回答には、**正しく判断できた箇所と、通信経路を誤って解釈した箇所**がありました。
 
-| 評価対象 | 実際に確認できた事実 | AI分析上の評価・課題 |
+![Gemma 3の回答：Kaliルールの無効化とWindows通信経路の判断](images/12-ai-output-routing-error.png)
+
+| AIの判断 | 実測・構成からの評価 | 判定 |
 |---|---|---|
-| SSHへの到達性 | 対策前はKaliからログイン成功 | 設定値だけでなく実際の到達性を確認する必要がある |
-| pfSenseの許可ルール | 無効化後はKaliからの新規接続を遮断 | `Pass`というアクションとルールの有効・無効を混同する誤解釈が見られた |
-| Windowsの通信経路 | WindowsとUbuntuは同一LAN内 | pfSenseを経由する通信と直接通信を区別する必要がある |
-| SSH認証強化 | 公開鍵認証成功とパスワード認証無効の実効設定を確認 | 設定と認証ログを組み合わせて裏付ける必要がある |
+| KaliのSSH許可ルールは`Disabled: Yes`なので無効 | ルールの状態と整合 | **整合** |
+| 対策後、KaliからUbuntuへのSSHは遮断される | 接続タイムアウトとpfSenseの`Block`ログに整合 | **整合** |
+| WindowsからUbuntuへのSSH通信は通常pfSenseを通る | 両端末は同じVMnet2上にあり、通常は直接通信するため不適切 | **誤判断** |
 
-**評価結果：** ローカルAIはリスクを検討する補助として利用できましたが、ファイアウォールルールを誤解釈する事例があり、回答を無条件に採用することはできません。実際の接続試験とログとの照合が、誤判断の発見に役立ちました。
+この結果は、**Gemma 3が設定の一部を正しく読めても、ネットワーク全体の経路推論を誤る場合がある**ことを示しています。
 
-現時点では、AI分析の正答率・再現率などを算出できるだけの評価データはなく、**AIの有効性を定量的に証明した段階ではありません**。
+とくに、今回の画面で**Kali側の許可ルールが無効と判断した点は正しく**、「無効化されたルールを有効と判断した」とは扱いません。一方、Windowsの通信経路については実際の構成と矛盾する判断をしています。
 
-### STEP 8｜Pythonによる分析・レポート生成
+なお、ここでの評価は特定の設定・入力・出力に対する**定性的評価**です。モデル一般の正答率や安全性を測定した結果ではありません。
 
-ローカルAI分析と検証結果の整理を支援するPythonスクリプトを作成しました。
+### STEP 8｜分析記録を整理し、Markdownレポートを生成
 
-| ファイル | 機能 |
+分析結果・実測・AI評価をファイルごとに分けて保存しました。
+
+![SSH設定、ネットワーク情報、AI分析、評価結果のテキストファイル一覧](images/13-analysis-artifacts.png)
+
+主な記録：
+
+| ファイル | 内容 |
 |---|---|
-| [`local-ai-analysis/analyze_ssh.py`](local-ai-analysis/analyze_ssh.py) | SSH設定・ネットワーク情報・検証結果を読み込み、Ollama APIの`gemma3:4b`で分析して結果を保存 |
-| [`local-ai-analysis/generate_report.py`](local-ai-analysis/generate_report.py) | 設定・分析・評価記録をMarkdown形式のレポートにまとめる |
-| [`local-ai-analysis/README.md`](local-ai-analysis/README.md) | ローカルAI分析の目的・構成・手順の概要 |
+| `ssh_config.txt` | SSH設定の記録 |
+| `network_config.txt` | ネットワークとFW情報 |
+| `security_analysis.txt` / `ssh_analysis.txt` | AI分析の記録 |
+| `verification.txt` | 接続・対策検証の結果 |
+| `evaluation.txt` | AIの判断と実測を比較した評価 |
+| `verification_analysis.txt` | 検証結果を踏まえたAIの再分析 |
+| `auto_report.md` | 設定・分析・検証・評価をまとめたMarkdownレポート |
 
-**現在の状態：** スクリプトは作成済みです。実行環境や入力ファイルを含めた自動生成の再現性確認は、今後記録を充実させます。
+Pythonでこれらの記録を読み込み、`auto_report.md`を出力する処理を作成しました。途中、Pythonの構文エラーや出力ファイル未生成を確認し、修正しました。
 
-## 5. 結果のまとめ
+**修正後は、`auto_report.md`が作成され、章見出しを確認できました。**
 
-| 評価項目 | 結果 | 判断の根拠 |
+![auto_report.mdが生成されたディレクトリ一覧](images/14-auto-report-created.png)
+
+![auto_report.mdに含まれる設定・分析・検証・評価の章見出し](images/15-auto-report-sections.png)
+
+主な章は`Purpose`、`SSH Configuration`、`Network and Firewall`、`AI Analysis`、`Verification Results`、`AI Evaluation`、`Post-verification AI Analysis`です。
+
+公開用のPythonスクリプトを別ディレクトリに整理し、構文チェックや機密情報らしき文字列の簡易チェックも実施しました。
+
+![公開用スクリプトの配置と簡易チェック](images/16-public-scripts-check.png)
+
+**実測結果：** 分析結果の保存とMarkdownレポートの生成を確認できました。ただし、全項目の内容の正確性や、異なる環境での再現性まで保証するものではありません。
+
+#### 関連コード
+
+- [`local-ai-analysis/analyze_ssh.py`](local-ai-analysis/analyze_ssh.py)：PythonからOllama APIを呼び、Gemma 3で分析するスクリプト。
+- [`local-ai-analysis/generate_report.py`](local-ai-analysis/generate_report.py)：複数の分析記録をMarkdownにまとめるスクリプト。
+- [`local-ai-analysis/README.md`](local-ai-analysis/README.md)：ローカルAI分析の概要。
+
+※開発過程の画面と公開スクリプトでは、出力ファイル名が異なる場合があります。READMEでは、スクリーンショットで観測した内容と、公開コードが定義する保存先を区別して扱います。
+
+## 5. 検証結果のまとめ
+
+| 評価項目 | 結果 | 根拠 |
 |---|---|---|
-| 不要なSSH接続の遮断 | **確認** | Kaliの接続タイムアウト、pfSenseのBlockログ |
-| 正常な管理接続の維持 | **確認** | WindowsからUbuntuへのSSHログイン成功 |
-| SSH公開鍵認証への移行 | **確認** | `sshd -T`の実効設定と`Accepted publickey`ログ |
-| ローカルAIによる設定分析 | **実施** | Ollama・Gemma 3を用いた分析とPythonコード |
-| AIの誤解釈の発見 | **確認** | 無効な許可ルールの解釈と、実際の通信制御との比較 |
-| AI分析精度の定量評価 | **未実施** | 正解データセット、複数試行、評価指標が未整備 |
-| Webアプリへの展開 | **未着手** | 今後の実験対象 |
+| Kaliからの不要なSSH接続制限 | **確認** | 接続タイムアウト、pfSenseの`Block`ログ |
+| Windowsからの管理接続の維持 | **確認** | WindowsからUbuntuへのログイン成功 |
+| SSH公開鍵認証への移行 | **確認** | `sshd -T`と`Accepted publickey` |
+| ローカルAIによる設定分析 | **実行・保存を確認** | Gemma 3の回答画面、テキストファイル |
+| AIの判断の評価 | **定性的に確認** | Kaliルールの判断は整合、Windows経路は誤判断 |
+| レポート自動生成 | **基本動作を確認** | `auto_report.md`の存在・章見出し |
+| AIの分析精度の定量評価 | **未実施** | 正解データセット・複数試行・指標が未整備 |
+| Webアプリの認証・アクセス制御 | **未着手** | 今後の検証対象 |
 
 ## 6. 考察
 
-今回の学習では、**生成AIのリスク分析は仮説の整理に役立つ一方、分析結果の正しさは設定・実機試験・ログで確かめる必要がある**と分かりました。
+**生成AIは、セキュリティリスクの確認項目を整理する補助として利用できました。一方で、回答には実際のネットワーク構成と矛盾するものがあり、実測による裏付けが必要でした。**
 
-特に重要だった点は次の3つです。
+今回、特に重要だと分かったことは次の3点です。
 
-1. **設定の意味を正しく読むこと：** ファイアウォールの`Pass`だけを見ても、そのルールが無効であれば通信を許可する根拠にはなりません。
-2. **通信経路を区別すること：** 同一LAN内の通信と、pfSenseを経由するLAN間通信は分けて評価する必要があります。
-3. **観測結果で判断を裏付けること：** 「接続できない」だけでなく、対応するBlockログまで確認すると、原因の切り分けに近づけます。
+1. **設定値だけで結論を出さない。** `Pass`というアクションと、ルールが有効かどうかは別の情報です。
+2. **通信経路を正しく理解する。** 同一LAN内の直接通信と、pfSenseを経由するLAN間通信を区別する必要があります。
+3. **ログと接続試験を併用する。** 接続失敗だけでは原因を断定せず、送信元・宛先・ポートが対応するFWログまで照合します。
 
-この経験を踏まえ、今後はAIへの入力情報の品質、判断根拠の示し方、複数回実行時の安定性を評価します。
+その結果、**AIの判断 → 実際の設定・試験・ログとの比較 → 誤りの特定 → 分析方法の改善**という一連の学習フローを実践できました。
 
-## 7. 今後の取り組み
+## 7. 今後の課題
 
-- **AI分析の再現性向上：** 入力設定、AIプロンプト、AI回答原文、実測結果を対応付けて保存する。
-- **分析精度の評価：** 正解となる設定・通信結果を準備し、正誤や誤判断の傾向を比較する。
-- **検証対象の拡張：** Webアプリの認証・アクセス制御を対象に、分析から対策・効果確認まで実施する。
-- **ログの拡充：** 必要に応じて端末ログやネットワーク監視を組み合わせ、根拠を増やす。
+- **評価方法の整備：** 複数のSSH・FW設定ケースを準備し、正解データと比較して誤判断の傾向を評価する。
+- **AI入力の改善：** 有効・無効、インターフェース、サブネット、通信方向などを明示し、推測と観測を分けた回答を促す。
+- **記録の再現性：** モデル名・入力・出力・実測・評価結果を対応付けて保存する。
+- **対象の拡張：** Webアプリの認証・アクセス制御を題材に、分析から対策・効果検証までを行う。
 
-## 8. 使用技術・関連資料
+## 8. 使用技術・構成ファイル
 
 **仮想環境：** VMware Workstation / Kali Linux / Ubuntu Server / Windows 11 / pfSense  
-**認証・ネットワーク：** OpenSSH / TCP/IP / Firewall Logs / Linux Logs  
-**AI・自動化：** Ollama / Gemma 3（4B）/ Python / Ollama API  
+**通信・認証：** TCP/IP / OpenSSH / Firewall Logs / `journalctl`  
+**ローカルAI・自動化：** Ollama / Gemma 3（4B）/ Python / Ollama API  
+**記録・バージョン管理：** Markdown / Git / GitHub
 
-- [ローカルAI分析コードと概要](local-ai-analysis/README.md)
-- [セキュリティ基礎学習リポジトリ](https://github.com/kcs-j02/security)
+```text
+Frontier-AI-Security-Risk-Lab/
+├── README.md
+├── images/
+│   ├── 01-pfsense-interfaces.png          # 既存画像
+│   ├── 02-kali-routing.png                # 既存画像
+│   ├── ...                                # 既存の03〜10
+│   ├── lab-architecture.png               # 今回追加する全体構成図
+│   ├── 11-ai-analysis-execution.png
+│   ├── 12-ai-output-routing-error.png
+│   ├── 13-analysis-artifacts.png
+│   ├── 14-auto-report-created.png
+│   ├── 15-auto-report-sections.png
+│   └── 16-public-scripts-check.png
+└── local-ai-analysis/
+    ├── README.md
+    ├── analyze_ssh.py
+    └── generate_report.py
+```
 
-**注記：** 図・IPアドレス・ログは個人の検証環境に対応します。学習目的の構成であり、実運用環境にそのまま適用できることを保証するものではありません。
+**証拠画像の扱い：** `images/01-...png`〜`images/10-...png` は既存リポジトリ内の画像を参照しています。今回追加する画像7枚は同梱の`images/`に入っています。公開前に、個人情報・認証情報・秘密鍵が画像やログに含まれていないことを確認してください。
