@@ -1,0 +1,22 @@
+diff --git a/routes/basket.ts b/routes/basket.ts
+index 18dd069..4e95a42 100644
+--- a/routes/basket.ts
++++ b/routes/basket.ts
+@@ -16,6 +16,17 @@ export function retrieveBasket () {
+   return async (req: Request, res: Response, next: NextFunction) => {
+     try {
+       const id = req.params.id
++	const user = security.authenticatedUsers.from(req)
++
++	if (!user) {
++	  res.status(401).json({ error: 'Authentication required' })
++	  return
++	}
++
++	if (Number(user.bid) !== Number(id)) {
++	  res.status(403).json({ error: 'Forbidden' })
++	  return
++	}
+       const basket = await BasketModel.findOne({ where: { id }, include: [{ model: ProductModel, paranoid: false, as: 'Products' }] })
+       /* jshint eqeqeq:false */
+       challengeUtils.solveIf(challenges.basketAccessChallenge, () => {
