@@ -341,3 +341,5 @@ OWASP Juice Shop v20.3.0で、ログインしたユーザーAが別ユーザーB
 ## 10. AIモデル比較（準備中）
 
 Gemma 3（4B）とQwen 3（4B）に同じ観測結果を入力し、認可不備の特定、事実と推測の区別、対策の妥当性を比較する予定です。**実行結果・定量評価はまだありません。**
+
+比較実験の手順と実行用コード：[ai-model-evaluation/README.md](ai-model-evaluation/README.md) / [run_comparison.py](ai-model-evaluation/run_comparison.py)
