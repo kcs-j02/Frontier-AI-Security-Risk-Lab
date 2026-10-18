@@ -4,7 +4,7 @@
 
 NTTドコモビジネスのCRXソリューションにおける「フロンティアAI」への関心から、**リスク分析 → 実機検証 → 対策 → 効果検証 → AIの判断の評価**を、独自の仮想環境で実践しました。
 
-SSHとpfSenseの検証に加え、OWASP Juice Shop v20.3.0のIDOR/BOLAを対象に、Gemma 3（4B）の分析・脆弱性検証・修正・効果確認を実施しました。
+SSH設定・pfSense通信制御に加え、OWASP Juice Shop v20.3.0のIDOR/BOLAを発見・修正・検証しました。さらに、**Gemma 3（4B）とQwen 3（4B）による18回のセキュリティ分析比較**を行い、実測・ソースコードとAIの判断を照合しました。
 
 > **位置づけ：** 本リポジトリは学習目的の独自実験です。CRX製品や「フロンティアAI」の実装・内部モデル・固有機能を利用または再現したものではありません。検証は自身が管理する仮想環境内で実施しています。
 
@@ -14,9 +14,9 @@ SSHとpfSenseの検証に加え、OWASP Juice Shop v20.3.0のIDOR/BOLAを対象�
 
 以下の3点を評価します。
 
-1. **リスク分析：** SSH設定やファイアウォールルールから、AIが確認すべきリスク・対策案を整理できるか。
-2. **実機検証：** AIの判断を、接続試験・ネットワーク経路・ファイアウォールログ・認証ログと照合できるか。
-3. **有効性の評価：** AIの判断が正しい箇所と誤る箇所を特定し、改善すべき入力情報や検証方法を整理できるか。
+1. **リスク分析：** SSH・ファイアウォール設定とWebアプリの認可不備を、AIが適切に分析・対策提案できるか。
+2. **実機検証：** AIの判断を、SSH接続試験、FW・認証ログ、HTTP応答、対象ソースコードと照合できるか。
+3. **モデル比較：** 同じ検証情報でGemma 3とQwen 3を実行し、事実の正確性、根拠・不確実性、対策、追加検証の提案を比較できるか。
 
 **AIが「危険」と回答したことだけでは成果としません。何が事実で、何がAIの推測なのかを区別します。**
 
@@ -33,8 +33,9 @@ SSHとpfSenseの検証に加え、OWASP Juice Shop v20.3.0のIDOR/BOLAを対象�
 | **Windows 11** | `192.168.1.102` / VMnet2 | 正規の管理端末、pfSenseのWeb GUI操作 |
 | **pfSense 2.9.0** | WAN `192.168.160.132` / LAN `192.168.1.1` / OPT1 `192.168.2.1` | VMnet2・VMnet3間の通信制御とログ記録 |
 | **Ollama** | Ubuntu Server上 | ローカルLLMの実行基盤とAPI |
-| **Gemma 3（4B）** | Ollamaで実行 | SSH・ネットワーク設定のリスク分析 |
-| **Python** | Ubuntu Server上 | AIへの入力・出力保存・検証記録のレポート化 |
+| **Gemma 3（4B）/ Qwen 3（4B）** | UbuntuのOllamaで実行 | SSH・経路・IDOR/BOLAに関するAI分析とモデル比較 |
+| **OWASP Juice Shop v20.3.0 / Docker** | Ubuntu Server上 | Webアプリの認可不備を再現・修正・再検証 |
+| **Python** | Ubuntu Server上 | AIの呼び出し、出力・実測の記録、比較実験とレポート生成 |
 
 **通信経路上の重要な違い：** KaliからUbuntuへのSSH通信は異なるサブネット間の通信で、pfSenseによる制御対象です。一方、WindowsとUbuntuは同一LAN（VMnet2）にあるため、通常のSSH通信はpfSenseを経由しません。
 
@@ -59,11 +60,10 @@ flowchart TD
     E --> F["⑥ 接続試験・ログで効果検証"]
     F --> G["⑦ AI分析と実測結果を比較・再評価"]
     G --> H["⑧ Pythonで結果を記録・レポート生成"]
-    H --> I["⑨ WebアプリのIDOR/BOLAを検証"]
+    H --> I["⑨ WebアプリのIDOR/BOLAを発見・修正・検証"]
+    I --> J["⑩ Gemma 3 / Qwen 3を18回比較・暫定採点"]
     classDef done fill:#e9f6ec,stroke:#26854b,color:#143b25;
-    classDef future fill:#f3f4f6,stroke:#7a8593,color:#3c4856;
-    class A,B,C,D,E,F,G,H done;
-    class I done;
+    class A,B,C,D,E,F,G,H,I,J done;
 ```
 
 | 工程 | 内容 | 状態 | 主な証拠 |
@@ -77,8 +77,9 @@ flowchart TD
 | ⑦ AIの評価 | 回答内容と実測・経路を比較し、誤判断を確認 | **完了（定性的評価）** | AI出力画像、評価記録 |
 | ⑧ 記録・レポート | Pythonで分析結果を保存し、`auto_report.md`を生成 | **完了（基本動作）** | 実行画像、レポート生成画像 |
 | ⑨ 対象拡張 | Juice ShopでIDOR/BOLAを検証・修正 | **完了（閲覧操作のみ）** | [検証記録](web-app-idor/idor-verification.md) |
+| ⑩ AIモデル比較 | Gemma 3 / Qwen 3で3課題×3回×2モデルを実施 | **完了（予備評価）** | [比較評価レポート](ai-model-evaluation/evaluation-report.md) / [採点CSV](ai-model-evaluation/evaluation-scores.csv) |
 
-※「完了」は**今回設定した作業・確認範囲**についての状態です。AI分析精度の統計的評価と、Webアプリのその他のAPI・変更操作は未検証です。
+※「完了」は**今回設定した検証範囲**に限ります。モデル比較は18回答の**暫定的な人手採点**であり、モデル一般の正答率や統計的優劣を示すものではありません。Webアプリの他のAPI・更新・削除操作は未検証です。
 
 ## 4. 段階別の実験
 
@@ -270,8 +271,9 @@ Pythonでこれらの記録を読み込み、`auto_report.md`を出力する処�
 | ローカルAIによる設定分析 | **実行・保存を確認** | Gemma 3の回答画面、テキストファイル |
 | AIの判断の評価 | **定性的に確認** | Kaliルールの判断は整合、Windows経路は誤判断 |
 | レポート自動生成 | **基本動作を確認** | `auto_report.md`の存在・章見出し |
-| AIの分析精度の定量評価 | **未実施** | 正解データセット・複数試行・指標が未整備 |
 | WebアプリのIDOR/BOLA（買い物カゴ閲覧） | **対策効果を確認** | [検証記録](web-app-idor/idor-verification.md) |
+| Gemma 3 / Qwen 3の予備比較 | **18回答を暫定採点** | [比較評価](ai-model-evaluation/evaluation-report.md)、[採点CSV](ai-model-evaluation/evaluation-scores.csv) |
+| モデル性能の一般化・統計的な精度評価 | **未実施** | 課題追加、独立した採点者、試行条件の整備が必要 |
 
 ## 6. 考察
 
@@ -287,40 +289,42 @@ Pythonでこれらの記録を読み込み、`auto_report.md`を出力する処�
 
 ## 7. 今後の課題
 
-- **評価方法の整備：** 複数のSSH・FW設定ケースを準備し、正解データと比較して誤判断の傾向を評価する。
-- **AI入力の改善：** 有効・無効、インターフェース、サブネット、通信方向などを明示し、推測と観測を分けた回答を促す。
-- **記録の再現性：** モデル名・入力・出力・実測・評価結果を対応付けて保存する。
-- **対象の拡張：** 買い物カゴ閲覧のIDOR/BOLAは検証済み。他のAPIや更新・削除操作を今後検証する。
-- **AIの比較評価：** Gemma 3（4B）とQwen 3（4B）を同一の検証情報と評価項目で比較する。
+- **評価対象を増やす：** 既存の3ケースに加え、情報不足・矛盾するログ・別の認可不備を含む課題を追加する。
+- **採点の信頼性を高める：** 暫定採点の基準を固定し、別の評価者による再採点を実施する。
+- **実験条件を記録する：** モデルdigest、Ollamaバージョン、CPU/GPU、入力、出力、トークン数などを残す。
+- **Webアプリを追加検証する：** 買い物カゴ閲覧以外のAPI、更新・削除操作、異常系を検証する。
+- **証拠資料を整える：** IDOR実験のHTTP通信・修正前後のスクリーンショットを、認証情報を伏せた上で追加する。
 
 ## 8. 使用技術・構成ファイル
 
 **仮想環境：** VMware Workstation / Kali Linux / Ubuntu Server / Windows 11 / pfSense  
 **通信・認証：** TCP/IP / OpenSSH / Firewall Logs / `journalctl`  
-**ローカルAI・自動化：** Ollama / Gemma 3（4B）/ Python / Ollama API  
+**ローカルAI・自動化：** Ollama / Gemma 3（4B）/ Qwen 3（4B）/ Python / Ollama API  
 **記録・バージョン管理：** Markdown / Git / GitHub
 
 ```text
 Frontier-AI-Security-Risk-Lab/
 ├── README.md
+├── README.pdf                     # 旧版の参考資料（最新状況はREADME.md）
 ├── images/
-│   ├── 01-pfsense-interfaces.png          # 既存画像
-│   ├── 02-kali-routing.png                # 既存画像
-│   ├── ...                                # 既存の03〜10
-│   ├── lab-architecture.png               # 今回追加する全体構成図
-│   ├── 11-ai-analysis-execution.png
-│   ├── 12-ai-output-routing-error.png
-│   ├── 13-analysis-artifacts.png
-│   ├── 14-auto-report-created.png
-│   ├── 15-auto-report-sections.png
-│   └── 16-public-scripts-check.png
-└── local-ai-analysis/
+│   ├── 01-pfsense-interfaces.png  # 既存の証拠画像01〜16
+│   ├── ...
+│   └── lab-architecture.png
+├── local-ai-analysis/
+│   ├── README.md
+│   ├── analyze_ssh.py
+│   └── generate_report.py
+├── web-app-idor/
+│   ├── idor-verification.md
+│   └── basket-authorization.patch
+└── ai-model-evaluation/
     ├── README.md
-    ├── analyze_ssh.py
-    └── generate_report.py
+    ├── run_comparison.py
+    ├── evaluation-report.md
+    └── evaluation-scores.csv
 ```
 
-**証拠画像の扱い：** `images/01-...png`〜`images/10-...png` は既存リポジトリ内の画像を参照しています。今回追加する画像7枚は同梱の`images/`に入っています。公開前に、個人情報・認証情報・秘密鍵が画像やログに含まれていないことを確認してください。
+**証拠画像の扱い：** `images/` にはSSH・pfSense・ローカルAI実験の画像01〜16と全体構成図を掲載しています。IDOR実験のスクリーンショットは未掲載です。追加する際は個人情報・認証情報・秘密鍵が写っていないか確認します。また、ルートの `README.pdf` は現行のMarkdown READMEとは別のファイルで、自動同期されません。
 
 ## 9. WebアプリケーションのIDOR/BOLA検証
 
@@ -338,11 +342,23 @@ OWASP Juice Shop v20.3.0で、ログインしたユーザーAが別ユーザーB
 - [検証レポート](web-app-idor/idor-verification.md)
 - [修正パッチ](web-app-idor/basket-authorization.patch)
 
-## 10. AIモデル比較（18回の予備評価完了）
+## 10. Gemma 3 / Qwen 3のモデル比較（18回の予備評価完了）
 
-Gemma 3（4B）とQwen 3（4B）を、SSH設定・ネットワーク経路・IDOR/BOLAの3課題でそれぞれ3回ずつ比較しました。全18回の回答生成に成功しました。人手による**暫定採点**はGemma 3が43/72、Qwen 3が48/72です。主な差は同一LANの経路判断です。モデル全般の性能順位を示す統計的な結果ではありません。
+SSH設定・同一LANの通信経路・IDOR/BOLAの**3ケース × 各3回 × 2モデル＝18回答**を比較しました。Ollamaの応答生成は全18回成功していますが、これは正答率ではありません。
 
-- [比較評価レポート](ai-model-evaluation/evaluation-report.md)
-- [全18試行の採点表](ai-model-evaluation/evaluation-scores.csv)
+各回答について、**事実の正確性／根拠と不確実性／対策の妥当性／追加検証**を各0〜2点（8点満点）で暫定的に人手採点しました。
 
-比較実験の手順と実行用コード：[ai-model-evaluation/README.md](ai-model-evaluation/README.md) / [run_comparison.py](ai-model-evaluation/run_comparison.py)
+| 課題（各モデル3回答、24点満点） | Gemma 3（4B） | Qwen 3（4B） |
+|---|---:|---:|
+| SSH設定 | 18 | 18 |
+| ネットワーク経路 | 6 | **12** |
+| IDOR/BOLA | **19** | 18 |
+| **合計（72点満点）** | **43** | **48** |
+
+**主な観察：** Qwen 3は同一LAN内のWindows→Ubuntu通信が通常pfSenseを経由しない点を適切に説明しました。一方、ゲートウェイの誤記や不適切な検証方法も含まれました。Gemma 3は通信経路の判断が曖昧でしたが、IDORの所有者認可不足を指摘できました。両モデルとも、提示されていない事実や妥当でない修正案を含む場合がありました。
+
+**注意：** 3課題に限った予備評価です。同じ回答が繰り返された試行もあるため、5点差からモデル全般の優劣や統計的な有意差を主張することはできません。また、回答原文の`results.jsonl`は現在GitHubには公開していません。
+
+- [18回答の比較評価レポート](ai-model-evaluation/evaluation-report.md)
+- [全18試行の採点CSV](ai-model-evaluation/evaluation-scores.csv)
+- [評価方法と実行手順](ai-model-evaluation/README.md) / [比較実験用Python](ai-model-evaluation/run_comparison.py)
