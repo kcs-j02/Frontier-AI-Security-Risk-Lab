@@ -338,8 +338,11 @@ OWASP Juice Shop v20.3.0で、ログインしたユーザーAが別ユーザーB
 - [検証レポート](web-app-idor/idor-verification.md)
 - [修正パッチ](web-app-idor/basket-authorization.patch)
 
-## 10. AIモデル比較（準備中）
+## 10. AIモデル比較（18回の予備評価完了）
 
-Gemma 3（4B）とQwen 3（4B）に同じ観測結果を入力し、認可不備の特定、事実と推測の区別、対策の妥当性を比較する予定です。**実行結果・定量評価はまだありません。**
+Gemma 3（4B）とQwen 3（4B）を、SSH設定・ネットワーク経路・IDOR/BOLAの3課題でそれぞれ3回ずつ比較しました。全18回の回答生成に成功しました。人手による**暫定採点**はGemma 3が43/72、Qwen 3が48/72です。主な差は同一LANの経路判断です。モデル全般の性能順位を示す統計的な結果ではありません。
+
+- [比較評価レポート](ai-model-evaluation/evaluation-report.md)
+- [全18試行の採点表](ai-model-evaluation/evaluation-scores.csv)
 
 比較実験の手順と実行用コード：[ai-model-evaluation/README.md](ai-model-evaluation/README.md) / [run_comparison.py](ai-model-evaluation/run_comparison.py)
