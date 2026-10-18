@@ -87,7 +87,7 @@
 ## 7. 保存先と結論
 
 - [実験プログラム](run_comparison.py)
-- [18試行の採点と短評](evaluation-scores.csv)
+- [18試行の採点](evaluation-scores.csv)
 - [IDOR実機検証](../web-app-idor/idor-verification.md)
 
 提出された回答原文の results.jsonl は今回GitHubには公開していない。必要な機密情報チェックをした上で扱う。
